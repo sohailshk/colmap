@@ -100,6 +100,9 @@ class SceneInfo:
     # grouped into a frame. Only used if the camera priors define the sharing,
     # in which case the rig extrinsics are also derived from the GT.
     rig_image_prefixes: list[str] = dataclasses.field(default_factory=list)
+    # Whether to keep the camera priors fixed during mapping instead of
+    # refining them.
+    fix_camera_priors: bool = False
     # Additional arguments for the COLMAP reconstruction command.
     colmap_extra_args: list[str | Path] | None
     # Reconstruction backend. The default uses automatic_reconstructor.
@@ -713,6 +716,7 @@ def colmap_reconstruction(
     camera_priors_sparse_gt: pycolmap.Reconstruction | None = None,
     camera_priors_define_sharing: bool = False,
     rig_image_prefixes: Sequence[str] = (),
+    fix_camera_priors: bool = False,
     covisibility_sparse_gt: pycolmap.Reconstruction | None = None,
     colmap_extra_args: list[str | Path] | None = None,
     num_threads: int = 1,
@@ -847,24 +851,26 @@ def colmap_reconstruction(
             args.covisibility_min_shared_points,
         )
 
+    sparse_args = [
+        "--extraction",
+        "0",
+        "--matching",
+        "0",
+        "--sparse",
+        "1",
+        "--dense",
+        "0",
+    ]
+    if camera_priors_sparse_gt is not None and fix_camera_priors:
+        sparse_args += ["--refine_intrinsics", "0"]
+
     # Decouple matching from sparse reconstruction, because matching will
     # initialize an OpenGL context and Mac on Apple silicon tends to assign GUI
     # applications to the low efficiency cores but we want to use the
     # performance cores.
     phase_tracker.set("reconstruction")
     _run_with_log(
-        colmap_args
-        + (colmap_extra_args or [])
-        + [
-            "--extraction",
-            "0",
-            "--matching",
-            "0",
-            "--sparse",
-            "1",
-            "--dense",
-            "0",
-        ],
+        colmap_args + (colmap_extra_args or []) + sparse_args,
         workspace_path / "reconstruction.log",
         cwd=workspace_path,
     )
@@ -1043,6 +1049,7 @@ def process_scene(
             ),
             camera_priors_define_sharing=scene_info.camera_priors_define_sharing,
             rig_image_prefixes=scene_info.rig_image_prefixes,
+            fix_camera_priors=scene_info.fix_camera_priors,
             covisibility_sparse_gt=(
                 sparse_gt
                 if args.filter_covisibility

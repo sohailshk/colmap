@@ -229,6 +229,47 @@ def test_set_cameras_from_gt_with_rig(tmp_path: Path) -> None:
     assert sorted(sparse_gt.frames) == gt_frame_ids
 
 
+@pytest.mark.parametrize("fix_camera_priors", [False, True])
+def test_colmap_reconstruction_fixes_camera_priors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fix_camera_priors: bool
+) -> None:
+    args = argparse.Namespace(
+        overwrite_database=False,
+        overwrite_reconstruction=False,
+        overwrite_matches=False,
+        overwrite_two_view_geometries=False,
+        colmap_path=Path("colmap"),
+        use_gpu=False,
+        random_seed=0,
+        feature="sift",
+        mapper="global",
+        quality="high",
+        max_num_features=-1,
+        single_view_calibration=False,
+    )
+    commands: list[list[Any]] = []
+    monkeypatch.setattr(
+        utils,
+        "_run_with_log",
+        lambda cmd, *args, **kwargs: commands.append(cmd),
+    )
+    monkeypatch.setattr(utils, "set_cameras_from_gt", lambda *args: None)
+
+    utils.colmap_reconstruction(
+        args=args,
+        workspace_path=tmp_path,
+        image_path=tmp_path / "images",
+        camera_priors_sparse_gt=pycolmap.Reconstruction(),
+        camera_priors_define_sharing=True,
+        fix_camera_priors=fix_camera_priors,
+    )
+
+    extraction, matching, sparse = commands
+    assert "--refine_intrinsics" not in extraction
+    assert "--refine_intrinsics" not in matching
+    assert ("--refine_intrinsics" in sparse) == fix_camera_priors
+
+
 def test_set_cameras_from_gt(tmp_path: Path) -> None:
     database_path = tmp_path / "database.db"
     options = pycolmap.SyntheticDatasetOptions()
